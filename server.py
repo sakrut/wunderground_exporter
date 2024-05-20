@@ -1,16 +1,36 @@
 from flask import Flask, make_response
-
 import os
 import json
 import urllib.request
 import time
 
-
 app = Flask(__name__)
 
+def calculate_wind_turbine_power(wind_speed):
+    wind_speed = wind_speed / 3.6
+    
+    if wind_speed < 3:
+        return 0
+    
+    a6 = 2.90561762e-03
+    a5 = -1.39037374e-01
+    a4 = 2.13588911
+    a3 = -11.5222812
+    a2 = 28.8419876
+    a1 = -8.19729897
+    a0 = -12.6226817
+
+    power = (a6 * (wind_speed**6) + 
+             a5 * (wind_speed**5) + 
+             a4 * (wind_speed**4) + 
+             a3 * (wind_speed**3) + 
+             a2 * (wind_speed**2) + 
+             a1 * wind_speed + 
+             a0)
+    
+    return power
 
 def generateMetrics():
-
     import json
     #check empty env vars
     if "ENV_STATION_ID" in os.environ:
@@ -22,13 +42,13 @@ def generateMetrics():
     else:
         apiKey="9066f4110ae4488aa6f4110ae4588a87"
 
-    print(apiKey,stationID)
+    print(apiKey, stationID)
 
-    output_list= []
+    output_list = []
 
     for station in stationID:
         #fetch_url="https://api.weather.com/v2/pws/observations/current?stationId="+station+"&format=json&units=m&apiKey="+apiKey+""
-        fetch_url="https://api.weather.com/v2/pws/observations/current?apiKey="+apiKey+"&stationId="+station+"&format=json&numericPrecision=decimal&units=m"
+        fetch_url = "https://api.weather.com/v2/pws/observations/current?apiKey=" + apiKey + "&stationId=" + station + "&format=json&numericPrecision=decimal&units=m"
         print(fetch_url)
         try:
             resp = urllib.request.urlopen(fetch_url)
@@ -51,54 +71,58 @@ def generateMetrics():
 
         resp_json = json.loads(resp.read().decode('utf-8'))['observations'][0]
 
-
-
         print(json.dumps(resp_json))
         json_dict = {     
-        "observations_solarRadiation" : str(resp_json["solarRadiation"]),
-        "observations_lon" : str(resp_json["lon"]),
-        "observations_realtimeFrequency" : str(resp_json["realtimeFrequency"]),
-        "observations_epoch" : str(resp_json["epoch"]),
-        "observations_lat" : str(resp_json["lat"]),
-        "observations_uv" : str(resp_json["uv"]),
-        "observations_winddir" : str(resp_json["winddir"]),
-        "observations_humidity" : str(resp_json["humidity"]),
-        "observations_qcStatus" : str(resp_json["qcStatus"]),
-        "metric_temp" : str(resp_json["metric"]["temp"]),
-        "metric_heatIndex" : str(resp_json["metric"]["heatIndex"]),
-        "metric_dewpt" : str(resp_json["metric"]["dewpt"]),
-        "metric_windChill" : str(resp_json["metric"]["windChill"]),
-        "metric_windSpeed" : str(resp_json["metric"]["windSpeed"]),
-        "metric_windGust" : str(resp_json["metric"]["windGust"]),
-        "metric_pressure" : str(resp_json["metric"]["pressure"]),
-        "metric_precipRate" : str(resp_json["metric"]["precipRate"]),
-        "metric_precipTotal" : str(resp_json["metric"]["precipTotal"]),
-        "metric_elev" : str(resp_json["metric"]["elev"])
+            "observations_solarRadiation": str(resp_json["solarRadiation"]),
+            "observations_lon": str(resp_json["lon"]),
+            "observations_realtimeFrequency": str(resp_json["realtimeFrequency"]),
+            "observations_epoch": str(resp_json["epoch"]),
+            "observations_lat": str(resp_json["lat"]),
+            "observations_uv": str(resp_json["uv"]),
+            "observations_winddir": str(resp_json["winddir"]),
+            "observations_humidity": str(resp_json["humidity"]),
+            "observations_qcStatus": str(resp_json["qcStatus"]),
+            "metric_temp": str(resp_json["metric"]["temp"]),
+            "metric_heatIndex": str(resp_json["metric"]["heatIndex"]),
+            "metric_dewpt": str(resp_json["metric"]["dewpt"]),
+            "metric_windChill": str(resp_json["metric"]["windChill"]),
+            "metric_windSpeed": str(resp_json["metric"]["windSpeed"]),
+            "metric_windGust": str(resp_json["metric"]["windGust"]),
+            "metric_pressure": str(resp_json["metric"]["pressure"]),
+            "metric_precipRate": str(resp_json["metric"]["precipRate"]),
+            "metric_precipTotal": str(resp_json["metric"]["precipTotal"]),
+            "metric_elev": str(resp_json["metric"]["elev"])
         }
-
 
         stationID = str(resp_json["stationID"])
         obsTimeUtc = str(resp_json["obsTimeUtc"])
         #obsTimeLocal = str(resp_json["obsTimeLocal"]).replace(" ","T")
-        neighborhood = str(resp_json["neighborhood"]).replace(" ","")
+        neighborhood = str(resp_json["neighborhood"]).replace(" ", "")
         softwareType = str(resp_json["softwareType"])
         country = str(resp_json["country"])
 
         print(json_dict)
-        labels="{stationID=\""+stationID+"\",neighborhood=\""+neighborhood+"\",softwareType=\""+softwareType+"\",country=\""+country+"\"}"
+        labels = "{stationID=\"" + stationID + "\",neighborhood=\"" + neighborhood + "\",softwareType=\"" + softwareType + "\",country=\"" + country + "\"}"
         
         for key in json_dict:
             if json_dict[key] != "None":
                 print(json_dict[key])
-                prom_type = "# TYPE wunderground_"+key+" gauge"+"\n"
-                prom_metric = "wunderground_"+key+labels+" "+json_dict[key]+"\n"
+                prom_type = "# TYPE wunderground_" + key + " gauge" + "\n"
+                prom_metric = "wunderground_" + key + labels + " " + json_dict[key] + "\n"
                 output_list.append(prom_type)
                 output_list.append(prom_metric)
+
+
+        wind_speed = float(resp_json["metric"]["windSpeed"])
+        wind_turbine_power = calculate_wind_turbine_power(wind_speed)
+        prom_type = "# TYPE wunderground_metric_windTurbinePower gauge\n"
+        prom_metric = "wunderground_metric_windTurbinePower" + labels + " " + str(wind_turbine_power) + "\n"
+        output_list.append(prom_type)
+        output_list.append(prom_metric)
 
     output = ''.join(output_list)
     print(output)
     return output
-
 
 
 @app.route('/metrics')
@@ -113,12 +137,10 @@ def metrics():
     return generateMetrics()
 
 
-
 if "ENV_PORT" in os.environ:
-    SERVER_PORT=os.environ["ENV_PORT"]
+    SERVER_PORT = os.environ["ENV_PORT"]
 else:
-    SERVER_PORT="9122"
-
+    SERVER_PORT = "9122"
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0',port=SERVER_PORT)
+    app.run(host='0.0.0.0', port=SERVER_PORT)
